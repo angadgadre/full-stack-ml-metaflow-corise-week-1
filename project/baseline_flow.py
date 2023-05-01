@@ -49,17 +49,6 @@ class BaselineNLPFlow(FlowSpec):
         import pandas as pd
         import io 
         from sklearn.model_selection import train_test_split
-        from sklearn.tree import DecisionTreeRegressor
-        from sklearn.ensemble import RandomForestRegressor
-        from sklearn.pipeline import Pipeline
-        from sklearn.preprocessing import MinMaxScalar
-        from sklearn.preprocessing import OneHotEncoder
-        from sklearn.compose import make_column_transformer
-        from sklearn.svm import SVC
-        from sklearn.metrics import f1_score
-        from sklearn.metrics import rocauc
-        from sklearn.metrics import confusion_matrix
-        from sklearn.dummy import DummyClassifier
         from metaflow.cards import Table
 
         # load dataset packaged with the flow.
@@ -100,8 +89,8 @@ class BaselineNLPFlow(FlowSpec):
             X_test, y_test, test_size=(test_ratio / (test_ratio + validation_ratio)), random_state=SEED,
             )
 
-        # Return the splits
-        return X_train, X_val, X_test, y_train, y_val, y_test
+            # Return the splits
+            return X_train, X_val, X_test, y_train, y_val, y_test
         
         # features (X), label (y)
         X = _df.iloc[:, ~_df.columns.isin(['label'])]
@@ -119,6 +108,15 @@ class BaselineNLPFlow(FlowSpec):
 
     @step
     def baseline(self):
+        from sklearn.tree import DecisionTreeRegressor
+        from sklearn.ensemble import RandomForestRegressor
+        from sklearn.pipeline import Pipeline
+        from sklearn.preprocessing import MinMaxScalar
+        from sklearn.preprocessing import OneHotEncoder
+        from sklearn.compose import make_column_transformer
+        from sklearn.svm import SVC
+        from sklearn.dummy import DummyClassifier
+        import pandas as pd
         
         "Numerical features"
         _num_features_ls = self.X_train.select_dtypes(include=['int64', 'float64']).columns.values
@@ -130,7 +128,7 @@ class BaselineNLPFlow(FlowSpec):
         # _pct_positive_sentiment = self.traindf.labels.sum() / self.traindf.labels.shape[0]
 
         dummy_model = DummyClassifier(strategy="most_frequent")
-        dummy_model.fit(self.X_train, y_train)
+        dummy_model.fit(self.X_train, self.y_train)
         
         self.model[0] = dummy_model
 
@@ -144,6 +142,11 @@ class BaselineNLPFlow(FlowSpec):
     @step
     def end(self):
         from metaflow.cards import Table
+        from sklearn.metrics import f1_score
+        from sklearn.metrics import roc_curve
+        from sklearn.metrics import confusion_matrix
+        import pandas as pd
+
         msg = 'Baseline Accuracy: {}\nBaseline AUC: {}'
         print(msg.format(
             round(self.base_acc,3), round(self.base_rocauc,3)
