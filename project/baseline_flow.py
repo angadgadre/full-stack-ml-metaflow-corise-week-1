@@ -49,7 +49,6 @@ class BaselineNLPFlow(FlowSpec):
         import pandas as pd
         import io 
         from sklearn.model_selection import train_test_split
-        from metaflow.cards import Table
 
         # load dataset packaged with the flow.
         # this technique is convenient when working with small datasets that need to move to remove tasks.
@@ -97,7 +96,7 @@ class BaselineNLPFlow(FlowSpec):
         y = _df[['label']]
 
         self.X_train, self.X_val, self.X_test, self.y_train, self.y_val, self.y_test = train_validation_test_split(
-         X, y, 1.0-split_size, (1.0-_test_ratio)*(1.0-split_size), _test_ratio*(1.0-split_size)
+         X, y, 1.0-self.split_size, (1.0-_test_ratio)*(1.0-self.split_size), _test_ratio*(1.0-self.split_size)
         )
 
         print(f'num of rows in train set: {self.X_train.shape[0]}')
@@ -108,14 +107,14 @@ class BaselineNLPFlow(FlowSpec):
 
     @step
     def baseline(self):
-        from sklearn.tree import DecisionTreeRegressor
-        from sklearn.ensemble import RandomForestRegressor
-        from sklearn.pipeline import Pipeline
-        from sklearn.preprocessing import MinMaxScalar
-        from sklearn.preprocessing import OneHotEncoder
-        from sklearn.compose import make_column_transformer
-        from sklearn.svm import SVC
+        # from sklearn.tree import DecisionTreeRegressor
+        # from sklearn.ensemble import RandomForestRegressor
+        # from sklearn.pipeline import Pipeline
+        # from sklearn.preprocessing import MinMaxScalar, OneHotEncoder
+        # from sklearn.compose import make_column_transformer
+        # from sklearn.svm import SVC
         from sklearn.dummy import DummyClassifier
+        from sklearn.metrics import accuracy_score, roc_auc_score
         import pandas as pd
         
         "Numerical features"
@@ -130,23 +129,22 @@ class BaselineNLPFlow(FlowSpec):
         dummy_model = DummyClassifier(strategy="most_frequent")
         dummy_model.fit(self.X_train, self.y_train)
         
-        self.model[0] = dummy_model
+        self.model = dummy_model
 
         ### Done: Fit and score a baseline model on the data, log the acc and rocauc as artifacts.
         self.base_acc = dummy_model.score(self.X_train, self.y_train)
         self.base_rocauc = 0.5 # AUC will be 0.5 for a dummy or random baseline model
+        # self.base_rocauc = roc_auc_score(y_train, dummy_y_predict)
 
         self.next(self.end)
         
     @card(type='corise') # done: after you get the flow working, chain link on the left side nav to open your card!
     @step
     def end(self):
-        from metaflow.cards import Table
-        from sklearn.metrics import f1_score
-        from sklearn.metrics import roc_curve
-        from sklearn.metrics import confusion_matrix
+        from sklearn.metrics import accuracy_score, roc_auc_score, roc_curve
         import pandas as pd
-
+        from metaflow.cards import Table, Markdown, Artifact
+        
         msg = 'Baseline Accuracy: {}\nBaseline AUC: {}'
         print(msg.format(
             round(self.base_acc,3), round(self.base_rocauc,3)
@@ -157,10 +155,10 @@ class BaselineNLPFlow(FlowSpec):
         current.card.append(Artifact(self.base_acc))
 
         # Some playing around with the model artifacts
-        dummy_model = self.model[0]
-        dummy_y_predict = dummy_model.predict(self.X_train)
+        dummy_model = self.model
+        dummy_y_predict = dummy_model.predict(self.X_val)
         # Predict probabilities for the validation set (X_test)
-        dummy_y_pred_prob = dummy_model.predict_proba(self.X_train)[:, 1]
+        dummy_y_pred_prob = dummy_model.predict_proba(self.X_val)[:, 1]
         # Calculate the false positive rate, true positive rate, and thresholds using roc_curve
         fpr, tpr, thresholds = roc_curve(self.y_val, dummy_y_pred_prob)
         
@@ -171,29 +169,32 @@ class BaselineNLPFlow(FlowSpec):
         _fp_df['is_fp'] = [1 if row.predicted == 1 and row.actuals == 0 else 0 for _, row in _fp_df.iterrows()]
 
         print(f'num false postives: {_fp_df.is_fp.sum()}')
-        _X_val_fp_df = pd.merge(self.X_val, _fp_df.query('is_fp == 1'), left_index=True, right_index=True, how='inner')
+        self.X_val_fp_df = pd.merge(self.X_val, _fp_df.query('is_fp == 1'), left_index=True, right_index=True, how='inner')
 
         # Done: display the false_positives dataframe using metaflow.cards
         # Documentation: https://docs.metaflow.org/api/cards#table
-        
-        current.card.append(
-            Table.from_dataframe(
-                _X_val_fp_df.head()
-                )
-            )
+        if self.X_val_fp_df.shape[0] == 0:
+            _fp = pd.DataFrame()
+        else:
+            _fp = self.X_val_fp_df.sample(5)
+
+        current.card.append(Table.from_dataframe(_fp))
+            
 
         current.card.append(Markdown("## Examples of False Negatives"))
         # Done: compute the false negatives predictions where the baseline is 0 and the valdf label is 1. 
         _fn_df = _fp_df.copy()
         _fn_df['is_fn'] = [1 if row.predicted == 0 and row.actuals == 1 else 0 for _, row in _fn_df.iterrows()]
-        _X_val_fn_df = pd.merge(self.X_val, _fn_df.query('is_fn == 1'), left_index=True, right_index=True, how='inner')
+        self.X_val_fn_df = pd.merge(self.X_val, _fn_df.query('is_fn == 1'), left_index=True, right_index=True, how='inner')
+
+        if self.X_val_fn_df.shape[0] == 0:
+            _fn = pd.DataFrame()
+        else:
+            _fn = self.X_val_fn_df.sample(5)
 
         # Done: display the false_negatives dataframe using metaflow.cards
-        current.card.append(
-            Table.from_dataframe(
-                _X_val_fn_df.head()
-                )
-            )
+        current.card.append(Table.from_dataframe(_fn))
+                
 
 if __name__ == '__main__':
     BaselineNLPFlow()
